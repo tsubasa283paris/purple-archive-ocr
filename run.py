@@ -4,7 +4,8 @@
 """
 import argparse
 import glob
-from typing import List, Union
+import json
+from typing import List, Tuple, Union
 
 import cv2
 from google.cloud.vision import ImageAnnotatorClient
@@ -14,11 +15,14 @@ from google.oauth2 import service_account
 
 GAPI_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate"
 
+AREA_BOUND_SUBT = ((95, 143), (673, 393))
+AREA_BOUND_PLAYER = ((21, 461), (627, 496))
+
 
 def retrieve_text_from_gif(
         gif_path: str,
         credentials: service_account.Credentials
-    ) -> None:
+    ) -> List[Tuple[str, str]]:
     """
     指定されたGIFファイルのパスから、GIFファイルの構成画像それぞれを
     対象にVision APIを呼び出し、含まれる文字列の一覧を返す。
@@ -45,20 +49,38 @@ def retrieve_text_from_gif(
             "features": [{
                 "type_": Feature.Type.DOCUMENT_TEXT_DETECTION
             }],
+            "image_context": {
+                "language_hints": ["ja"]
+            }
         })
     
     # APIを呼び出す
     response = client.batch_annotate_images(requests=request_param)
         
-    # 結果表示
-    for i, air in enumerate(response.responses):
-        print("=" * 79)
-        print(i)
-        print("-" * 79)
-        if len(air.text_annotations):
-            print(air.text_annotations[0].description)
+    # 結果の作成
+    result: List[Tuple[str, str]] = []
+    for air in response.responses:
+        subt_str = ""
+        player_str = ""
+        for text in air.text_annotations:
+            vertices = text.bounding_poly.vertices
+            if len(vertices) != 4:
+                continue
+
+            if vertices[0].x > AREA_BOUND_SUBT[0][0] and \
+                vertices[0].y > AREA_BOUND_SUBT[0][1] and \
+                vertices[1].x < AREA_BOUND_SUBT[1][0] and \
+                vertices[1].y < AREA_BOUND_SUBT[1][1]:
+                subt_str += text.description
+            elif vertices[0].x > AREA_BOUND_PLAYER[0][0] and \
+                vertices[0].y > AREA_BOUND_PLAYER[0][1] and \
+                vertices[1].x < AREA_BOUND_PLAYER[1][0] and \
+                vertices[1].y < AREA_BOUND_PLAYER[1][1]:
+                player_str = text.description
+        
+        result.append((subt_str, player_str))
     
-    return None
+    return result
 
 
 if __name__ == "__main__":
@@ -85,4 +107,15 @@ if __name__ == "__main__":
     credentials = service_account.Credentials.from_service_account_file(cred_path)
 
     # API呼び出しの実施
-    retrieve_text_from_gif(gif_path, credentials)
+    result = retrieve_text_from_gif(gif_path, credentials)
+
+    # JSONに整形して標準出力
+    result_dict = {
+        "result": [
+            {
+                "subtitle": result[i][0],
+                "playerName": result[i][1],
+            } for i in range(len(result))
+        ]
+    }
+    print(json.dumps(result_dict, indent=4, ensure_ascii=False))
