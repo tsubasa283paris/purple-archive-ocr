@@ -18,10 +18,15 @@ GAPI_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate"
 AREA_BOUND_SUBT = ((95, 143), (673, 393))
 AREA_BOUND_PLAYER = ((21, 461), (627, 496))
 
+DEFAULT_LANG_HINTS = [
+    "ja",
+]
+
 
 def retrieve_text_from_gif(
         gif_path: str,
-        credentials: service_account.Credentials
+        credentials: service_account.Credentials,
+        language_hints: List[str] = []
     ) -> List[Tuple[str, str]]:
     """
     指定されたGIFファイルのパスから、GIFファイルの構成画像それぞれを
@@ -50,7 +55,7 @@ def retrieve_text_from_gif(
                 "type_": Feature.Type.DOCUMENT_TEXT_DETECTION
             }],
             "image_context": {
-                "language_hints": ["ja"]
+                "language_hints": language_hints
             }
         })
     
@@ -69,13 +74,13 @@ def retrieve_text_from_gif(
 
             if vertices[0].x > AREA_BOUND_SUBT[0][0] and \
                 vertices[0].y > AREA_BOUND_SUBT[0][1] and \
-                vertices[1].x < AREA_BOUND_SUBT[1][0] and \
-                vertices[1].y < AREA_BOUND_SUBT[1][1]:
+                vertices[2].x < AREA_BOUND_SUBT[1][0] and \
+                vertices[2].y < AREA_BOUND_SUBT[1][1]:
                 subt_str += text.description
             elif vertices[0].x > AREA_BOUND_PLAYER[0][0] and \
                 vertices[0].y > AREA_BOUND_PLAYER[0][1] and \
-                vertices[1].x < AREA_BOUND_PLAYER[1][0] and \
-                vertices[1].y < AREA_BOUND_PLAYER[1][1]:
+                vertices[2].x < AREA_BOUND_PLAYER[1][0] and \
+                vertices[2].y < AREA_BOUND_PLAYER[1][1]:
                 player_str = text.description
         
         result.append((subt_str, player_str))
@@ -90,10 +95,16 @@ if __name__ == "__main__":
     ap.add_argument("-c", "--cred",
                     help="Path to the Google Cloud Platform credential JSON "\
                         +"file")
+    ap.add_argument("-l", "--language_hints", nargs="+", type=str,
+                    default=DEFAULT_LANG_HINTS,
+                    help="Language hints to pass to the Google Cloud Vision "\
+                        +"API. See https://cloud.google.com/vision/docs/languages "\
+                        +"to reference language codes")
     args = ap.parse_args()
 
     gif_path: str = args.gif
     cred_path: Union[str, None] = args.cred
+    language_hints: List[str] = args.language_hints
 
     if cred_path is None:
         cred_path_list = glob.glob("./cred/*.json")
@@ -107,7 +118,7 @@ if __name__ == "__main__":
     credentials = service_account.Credentials.from_service_account_file(cred_path)
 
     # API呼び出しの実施
-    result = retrieve_text_from_gif(gif_path, credentials)
+    result = retrieve_text_from_gif(gif_path, credentials, language_hints)
 
     # JSONに整形して標準出力
     result_dict = {
